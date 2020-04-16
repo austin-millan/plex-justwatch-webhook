@@ -2,59 +2,79 @@ from plexapi.server import PlexServer
 from justwatch import JustWatch
 import copy
 import os
+import pprint
+import time
+import math
 
-MAX_MEDIA_COUNT = 5
+MAX_MEDIA_COUNT = 75
 MAX_JW_QUERIES = 5
 MOVIE_KEY = "Movies"
 SHOW_KEY = "Shows"
 PROVIDER_NAME_URL_MAP = {
-    "Netflix": "netflix.com",
-    "HBO": "hbo.com",
-    "HBO Go": "play.hbogo.com",
-    "Vudu": "vudu.com",
-    "Hulu": "hulu.com",
-    "Google Play": "play.google.com",
-    "YouTube": "youtube.com",
-    "Hulu": "hulu.com",
-    "Microsoft": "microsoft.com",
-    "iTunes": "itunes.apple.com",
-    "Amazon": "amazon.com",
-    "DirectTV": "directv.com"
+    "Netflix": {
+        "url": "netflix.com",
+        "matched_movies": []
+    },
+    "HBO Go": {
+        "url": "play.hbogo.com",
+        "matched_movies": []
+    },
+    "Vudu": {
+        "url": "vudu.com",
+        "matched_movies": []
+    },
+    "Hulu": {
+        "url": "hulu.com",
+        "matched_movies": []
+    },
+    "Google Play": {
+        "url": "play.google.com",
+        "matched_movies": []
+    },
+    "YouTube": {
+        "url": "youtube.com",
+        "matched_movies": []
+    },
+    "Hulu": {
+        "url": "hulu.com",
+        "matched_movies": []
+    },
+    "Microsoft": {
+        "url": "microsoft.com",
+        "matched_movies": []
+    },
+    "iTunes": {
+        "url": "itunes.apple.com",
+        "matched_movies": []
+    },
+    "Amazon": {
+        "url": "amazon.com",
+        "matched_movies": []
+    },
+    "DirectTV": {
+        "url": "directv.com",
+        "matched_movies": []
+    }
 }
+UNMATCHED = []
+STOP_ON_MOVIE = ["Alice in Wonderland", "Aladdin", "Afflicted", "Ad Astra", "Abominable", "300", "12 Years a Slave", "8 Mile"]
+
 jw = JustWatch(country='US')
+pp = pprint.PrettyPrinter(indent=4)
 
+def plexCoverage(all_movies, provider_map):
+    total_movie_count = len(all_movies)
+    for provider_name, provider_data in provider_map.items():
+        provider_coverage = 0
+        provider_count = len(provider_data.get("matched_movies"))
+        if provider_count != 0:
+            provider_coverage = math.floor((provider_count / total_movie_count)*100)
+        print(f"{provider_name} has {provider_coverage}% movies on Plex.")
 
-def getPlexProviderCoverageStats(results, key):
-    def buildProviderMap(provider_map):
-        provider_table = {}
-        provider_table["Providers"] = {}
-        if provider_map:
-            for provider, _ in provider_map.items():
-                provider_table["Providers"][provider] = 0
-        return provider_table
-    if not results or key not in results:
-        return {}
-
-    total_movie_count = len(results.get(key))
-    provider_count_table = buildProviderMap(PROVIDER_NAME_URL_MAP)
-    output = {}
-    for movie, providers in results.get(key).items():
-        for provider in provider_count_table.get('Providers').keys():
-            if providers["Providers"][provider]:
-                provider_count_table["Providers"][provider] += 1
-    for provider, count in provider_count_table.get("Providers").items():
-        rate = int((count/total_movie_count)*100)
-        output[provider] = {"count": count, "rate": rate}
-    return output
-
-
-def printPlexCoverageStats(stats):
-    if not stats:
-        return None
-    for provider, stat in stats.items():
-        print(f"{stat.get('count')} ({stat.get('rate')}%) on {provider}")
 
 def providerHasMedia(title, providerURL, searchResults):
+    # if title in STOP_ON_MOVIE:
+    #     print(title)
     if not title or title == "":
         print("Title missing...")
         return False
@@ -76,85 +96,49 @@ def providerHasMedia(title, providerURL, searchResults):
                 return True
     return False
 
-def getProvidersForMedia(title):
-    def buildProviderMap(provider_map):
-        provider_table = {}
-        if provider_map:
-            for provider, _ in provider_map.items():
-                provider_table[provider] = False
-        return provider_table
 
-    provider_map = buildProviderMap(PROVIDER_NAME_URL_MAP)
-    if not title or title == "":
-        print("Title missing...")
-        return False
-    results = None
-    attempts = 0
-    while (results == None and attempts < MAX_JW_QUERIES):
-        try:
-            results = jw.search_for_item(query=title)
-        except Exception as e:
-            print(f"Error getting results from JustWatch API... Retrying {MAX_JW_QUERIES-attempts} times.")
-        attempts += 1
-    for provider_name, provider_url in PROVIDER_NAME_URL_MAP.items():
-        if providerHasMedia(title=title, providerURL=provider_url, searchResults=results):
-            provider_map[provider_name] = True
-    return {"Providers": provider_map}
-
-def addProviderLabelsToMedia(media):
+def findMediaProviders(media):
     if media is None:
         print("Media list missing.")
         return False
-    results = None
+    jw = JustWatch(country='US')
     for media_item in media:
         attempts = 0
-        while (results == None and attempts < MAX_JW_QUERIES):
+        results = None
+        while ( (results == None or len(results.get("items")) == 0 ) and attempts < MAX_JW_QUERIES ):
             try:
                 results = jw.search_for_item(query=media_item.title)
+                attempts += 1
             except Exception as e:
-                print(f"Error getting results from JustWatch API... Retrying {MAX_JW_QUERIES-attempts} times.")
-            attempts += 1
-        for provider_name, provider_url in PROVIDER_NAME_URL_MAP.items():
-            if providerHasMedia(title=media_item.title, providerURL=provider_url, searchResults=results):
-                if provider_name not in media_item.labels:
-                    # add new label
-                    media_item.addLabel(provider_name)
+                print(f"Got exception getting results: {e}")
+        unmatched = True
+        if len(results.get("items")) == 0:
+            UNMATCHED.append(media_item.title)
+            time.sleep(.500)
+            continue
+        for provider_name, provider_data in PROVIDER_NAME_URL_MAP.items():
+            hasMedia = providerHasMedia(title=media_item.title, providerURL=provider_data.get("url"), searchResults=results)
+            if hasMedia:
+                PROVIDER_NAME_URL_MAP[provider_name]["matched_movies"].append(media_item.title)
+                unmatched = False
             else:
-                if provider_name in media_item.labels:
-                    # remove existing label
-                    media_item.removeLabel(provider_name)
+                # print(f"Can't find {media_item.title} on provider {provider_name}")
+                pass
+        if unmatched:
+            UNMATCHED.append(media_item.title)
     return True
 
-def main():
+
+if __name__ == '__main__':
     # Check env variables
     if "PLEX_BASE_URL" not in os.environ or "PLEX_TOKEN" not in os.environ:
         print("Set environment variables")
-        exit(1)    
+        exit(1)
     plex = PlexServer(os.environ["PLEX_BASE_URL"], os.environ["PLEX_TOKEN"])
     # List all movies
     movies = plex.library.section('Movies')
     all_movies = movies.search(unwatched=True)
-    all_movies = all_movies[:MAX_MEDIA_COUNT]
-    movie_map = {MOVIE_KEY: {}}
-    # List all shows
-    addProviderLabelsToMedia(all_movies)
-    # shows = plex.library.section('TV Shows')
-    # all_shows = shows.search(unwatched=True)
-    # all_shows = all_shows[:MAX_MEDIA_COUNT]
-    # show_map = {SHOW_KEY: {}}
-    # for i, item in enumerate(all_movies):
-    #     res = getProvidersForMedia(item.title)
-    #     movie_map[MOVIE_KEY][item.title] = res
-    # for i, item in enumerate(all_shows):
-    #     res = getProvidersForMedia(item.title)
-    #     show_map[SHOW_KEY][item.title] = res
-    # print("MOVIE STATS")
-    # movie_stats = getPlexProviderCoverageStats(movie_map, MOVIE_KEY)
-    # printPlexCoverageStats(movie_stats)
-    # print("SHOW STATS")
-    # show_stats = getPlexProviderCoverageStats(show_map, SHOW_KEY)
-    # printPlexCoverageStats(show_stats)
-
-
-if __name__ == '__main__':
-    main()
+    # all_movies = all_movies[:MAX_MEDIA_COUNT]
+    findMediaProviders(all_movies)
+    plexCoverage(all_movies, PROVIDER_NAME_URL_MAP)
+    print("Done.")
