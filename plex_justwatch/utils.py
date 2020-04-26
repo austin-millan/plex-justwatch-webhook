@@ -134,7 +134,9 @@ class PlexJustWatchPlaylistManager:
         self.show_library_name = os.environ.get('SHOWS_LIBRARY', 'TV Shows')
         if os.environ.get('UPDATE_USER_PLAYLISTS', 'n') == 'y':
             self.update_user_playlists = True
-        self.clear_playlists()
+            self.copyProviderPlaylistsToUsers()
+        if os.environ.get('PRE_CLEAR_PLAYLISTS', 'n') == 'y':
+            self.clear_playlists()
         if os.environ.get('SYNC_EXISTING_LIBRARIES', 'n') == 'y':
             self.logger.info("Syncing existing libraries. This is a blocking process.")
             self.syncAll()
@@ -148,10 +150,14 @@ class PlexJustWatchPlaylistManager:
         return None
 
     def formatProviderNameFromPlaylistName(self, playlistName):
+        formattedPlaylistName = ""
         if playlistName != None:
-            for item in self.supported_media_types:
-                playlistName.strip(item)
-            playlistName.strip("On ")
+            split = playlistName.split(" ")
+            for idx, item in enumerate(split):
+                if not item.startswith("Movies") and not item.startswith("Shows") and not item.startswith("On"):
+                    formattedPlaylistName = ' '.join(split[idx:])
+                    break
+            return formattedPlaylistName
         return None
 
     def clear_playlists(self):
@@ -219,6 +225,8 @@ class PlexJustWatchPlaylistManager:
     def syncAll(self):
         self.syncLibrary(self.movie_library_name)
         self.syncLibrary(self.show_library_name)
+        if self.update_user_playlists:
+            self.copyProviderPlaylistsToUsers()
 
     def syncLibrary(self, library=''):
         if not library:
@@ -232,7 +240,6 @@ class PlexJustWatchPlaylistManager:
                     self.updateTitleInPlaylist(provider, media_item.title, library=library)
             else:
                 self.logger.info(f"No provider found for title \"{media_item.title}\"")
-        self.copyProviderPlaylistsToUsers()
 
     def getCurrentJustwatchProvidersForTitle(self, title):
         if title == "":
@@ -277,9 +284,11 @@ class PlexJustWatchPlaylistManager:
             if title == "":
                 self.logger.error("Unable to get title from event.")
                 return
+            self.logger.info(f"Movie \"{title}\" added to library \"{library}\"")
             providers = self.getCurrentJustwatchProvidersForTitle(title)
             if providers:
-                for provider in self.getCurrentJustwatchProvidersForTitle(title):
+                self.logger.info(f"Found providers for movie \"{title}\": {providers}")
+                for provider in providers:
                     self.updateTitleInPlaylist(provider, title, library)
             else:
                 self.logger.info(f"No providers found for title: \"{title}\"")
@@ -304,10 +313,16 @@ class PlexJustWatchPlaylistManager:
         plexPlaylists = self.getCurrentPlexProviderPlaylists()
         currentProviders = self.getCurrentJustwatchProvidersForTitle(title)
         for playlist in plexPlaylists:
-            if formatProviderNameFromPlaylistName(playlist.title) not in currentProviders:
+            formattedName = self.formatProviderNameFromPlaylistName(playlist.title)
+            if formattedName not in currentProviders:
                 self.logger.info(f"Pruning title \"{title}\" from playlist: \"{playlist.title}\"")
-                item = self.plex.library.section(self.movie_library_name).search(title)
-                playlist.removeItem(item)
+                items = self.plex.library.section(self.movie_library_name).search(title)
+                for item in items:
+                    try:
+                        result = playlist.removeItem(item)
+                        self.logger.info(f"Successfully pruned title: \"{title}\"")
+                    except Exception as e:
+                        self.logger.error(f"Error pruning {title} from playlist: \"{playlist.title}\" due to error: {e} ")
 
     def updateTitleInPlaylist(self, providerName, title, library='Movies'):
         if providerName == "" or providerName == None:
@@ -328,7 +343,7 @@ class PlexJustWatchPlaylistManager:
             if provider_playlist == None:
                 self.logger.info(f"Creating playlist \"{formattedPlaylistName}\"")
                 provider_playlist = self.plex.createPlaylist(formattedPlaylistName, item)
-                provider_playlist.edit(title=formattedPlaylistName, summary=f"A playlist containing movies found on {providerName}")
+                provider_playlist.edit(title=formattedPlaylistName, summary=f"A playlist containing {mediaType} found on {providerName}")
                 provider_playlist.uploadPoster(url=getProviderPosterURL(providerName))
             else:
                 # self.logger.info(f"Adding to playlist \"{formattedPlaylistName}\"")
@@ -364,9 +379,17 @@ class PlexJustWatchPlaylistManager:
         users = self.myplex.users()
         for user in users:
             if user.username in self.ignored_users:
+                self.logger.info(f"Skipping copying playlist to user {user.username}")
                 continue
+            if not user.username:
+                self.logger.info("Skipping empty user, probably just an invited user.")
+                continue
+            self.logger.info(f"Copying playlists to user: {user.username}")
             for playlist in self.getCurrentPlexProviderPlaylists():
-                result = playlist.copyToUser(user)
+                try:
+                    playlist.copyToUser(user.username)
+                except Exception as e:
+                    self.logger.error(f"Unable to copy playists to user {user.username} due to error: {e}")
 
     def getCurrentPlexProviderPlaylists(self):
         all_playlists = self.plex.playlists()
