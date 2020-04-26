@@ -1,0 +1,22 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "bootstrap",
+            "type": "shell",
+            "command": "python3.7 -m venv venv; source ./venv/bin/activate; python -m pip install mypy pydocstyle flake8; python -m pip install -r requirements.txt --no-binary :all:",
+            "problemMatcher": []
+        },
+        {
+            "label": "deploy",
+            "type": "shell",
+            "command": "dc-build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
