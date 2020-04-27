@@ -22,7 +22,7 @@ def index():
     payload = request.form.get('payload')
     if payload:
         data = json.loads(request.form.get('payload'))
-        manager.processEvent(data)
+        manager.process_event(data)
         return f"PLEX DATA: {data}"
     if request.method == 'GET':
         return '<h1>Hello from Webhook Listener!</h1>'
