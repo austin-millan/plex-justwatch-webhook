@@ -90,3 +90,8 @@ Then use the above configuration in your `docker-compose.yml` file, and bring it
 ```bash
 docker-compose up -d plex-justwatch-webhook
 ```
+
+## Repository Views
+
+[![HitCount](http://hits.dwyl.com/austin-millan/plex-justwatch-webhook.svg)](http://hits.dwyl.com/austin-millan/plex-justwatch-webhook)
+
